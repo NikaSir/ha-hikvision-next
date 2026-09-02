@@ -1,10 +1,79 @@
 """Tests for specific ISAPI responses."""
 
-import respx
-import httpx
 from contextlib import suppress
-from custom_components.hikvision_next.isapi import StorageInfo
-from tests.conftest import mock_endpoint, load_fixture
+from unittest.mock import AsyncMock
+
+import httpx
+import respx
+
+from custom_components.hikvision_next.isapi import AnalogCamera, StorageInfo
+from tests.conftest import load_fixture, mock_endpoint
+
+
+def stream_response(stream_id: int) -> str:
+    """Return a minimal valid StreamingChannel response."""
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<StreamingChannel>
+  <id>{stream_id}</id>
+  <channelName>Camera {stream_id}</channelName>
+  <enabled>true</enabled>
+  <Video>
+    <videoCodecType>H.264</videoCodecType>
+    <videoResolutionWidth>640</videoResolutionWidth>
+    <videoResolutionHeight>360</videoResolutionHeight>
+  </Video>
+  <Audio><enabled>false</enabled></Audio>
+</StreamingChannel>"""
+
+
+@respx.mock
+async def test_stream_discovery_retries_transient_forbidden(mock_isapi, monkeypatch):
+    """A transient 403 must not permanently hide a required stream."""
+    isapi = mock_isapi
+    isapi.pending_initialization = True
+    sleep = AsyncMock()
+    monkeypatch.setattr("custom_components.hikvision_next.isapi.isapi.asyncio.sleep", sleep)
+
+    route = respx.get(f"{isapi.host}/ISAPI/Streaming/channels/101")
+    route.side_effect = [
+        httpx.Response(403),
+        httpx.Response(200, text=stream_response(101)),
+    ]
+
+    streams = await isapi.get_camera_streams(1, (1,), attempts=3)
+
+    assert [stream.id for stream in streams] == [101]
+    assert route.call_count == 2
+    sleep.assert_awaited_once()
+
+
+@respx.mock
+async def test_required_streams_are_discovered_before_optional_streams(mock_isapi):
+    """Unsupported optional streams must be queried after all main streams."""
+    isapi = mock_isapi
+    isapi.pending_initialization = True
+    isapi.cameras = [
+        AnalogCamera(1, "Camera 1", "Model", "serial-1", 1, "Direct"),
+        AnalogCamera(2, "Camera 2", "Model", "serial-2", 2, "Direct"),
+    ]
+
+    for stream_id in (101, 102, 201, 202):
+        respx.get(f"{isapi.host}/ISAPI/Streaming/channels/{stream_id}").respond(
+            200,
+            text=stream_response(stream_id),
+        )
+    for stream_id in (103, 104, 203, 204):
+        respx.get(f"{isapi.host}/ISAPI/Streaming/channels/{stream_id}").respond(403)
+
+    await isapi.discover_camera_streams()
+
+    stream_requests = [
+        int(call.request.url.path.rsplit("/", 1)[1])
+        for call in respx.calls
+        if "/Streaming/channels/" in call.request.url.path
+    ]
+    assert stream_requests == [101, 102, 201, 202, 103, 104, 203, 204]
+    assert [[stream.id for stream in camera.streams] for camera in isapi.cameras] == [[101, 102], [201, 202]]
 
 
 @respx.mock

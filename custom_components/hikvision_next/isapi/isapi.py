@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import suppress
 import datetime
 from http import HTTPStatus
@@ -47,6 +48,13 @@ from .utils import bool_to_str, deep_get, parse_isapi_response, str_to_bool
 Node = dict[str, Any]
 
 _LOGGER = logging.getLogger(__name__)
+
+PRIMARY_STREAM_TYPE_IDS = (1, 2)
+OPTIONAL_STREAM_TYPE_IDS = tuple(
+    stream_type_id for stream_type_id in STREAM_TYPE if stream_type_id not in PRIMARY_STREAM_TYPE_IDS
+)
+PRIMARY_STREAM_DISCOVERY_ATTEMPTS = 3
+STREAM_DISCOVERY_RETRY_DELAY = 0.25
 
 
 class ISAPIClient:
@@ -158,7 +166,6 @@ class ISAPIClient:
                     input_port=channel_id,
                     connection_type=CONNECTION_TYPE_DIRECT,
                     ip_addr=self.device_info.ip_address,
-                    streams=await self.get_camera_streams(channel_id),
                 )
                 self.cameras.append(camera)
         else:
@@ -192,7 +199,6 @@ class ISAPIClient:
                             connection_type=CONNECTION_TYPE_PROXIED,
                             ip_addr=source.get("ipAddress"),
                             ip_port=source.get("managePortNo"),
-                            streams=await self.get_camera_streams(camera_id),
                         )
                     )
 
@@ -216,9 +222,10 @@ class ISAPIClient:
                             serial_no=device_serial_no,
                             input_port=int(analog_camera.get("inputPort")),
                             connection_type=CONNECTION_TYPE_DIRECT,
-                            streams=await self.get_camera_streams(camera_id),
                         )
                     )
+
+        await self.discover_camera_streams()
 
     async def get_protocols(self):
         """Get protocols and ports."""
@@ -354,13 +361,64 @@ class ISAPIClient:
             url = f"Smart/{slug}/{channel_id}"
         return url
 
-    async def get_camera_streams(self, channel_id: int) -> list[CameraStreamInfo]:
-        """Get stream info for all cameras."""
+    async def discover_camera_streams(self) -> None:
+        """Discover required streams before optional streams for every camera.
+
+        Some older NVRs temporarily reject valid channels after an unsupported
+        third or transcoded stream is requested. Querying main and sub-streams
+        for all cameras first prevents an optional 403 response on one camera
+        from hiding the required streams of subsequent cameras.
+        """
+
+        for camera in self.cameras:
+            camera.streams = await self.get_camera_streams(
+                camera.id,
+                PRIMARY_STREAM_TYPE_IDS,
+                attempts=PRIMARY_STREAM_DISCOVERY_ATTEMPTS,
+            )
+
+        for camera in self.cameras:
+            optional_streams = await self.get_camera_streams(camera.id, OPTIONAL_STREAM_TYPE_IDS)
+            known_stream_ids = {stream.id for stream in camera.streams}
+            camera.streams.extend(stream for stream in optional_streams if stream.id not in known_stream_ids)
+
+        _LOGGER.debug(
+            "Discovered camera streams: %s",
+            {camera.id: [stream.id for stream in camera.streams] for camera in self.cameras},
+        )
+
+    async def get_camera_streams(
+        self,
+        channel_id: int,
+        stream_type_ids: tuple[int, ...] | None = None,
+        *,
+        attempts: int = 1,
+    ) -> list[CameraStreamInfo]:
+        """Get selected stream information for a camera channel."""
+
+        selected_stream_type_ids = tuple(STREAM_TYPE) if stream_type_ids is None else stream_type_ids
         streams = []
         for stream_type_id, stream_type in STREAM_TYPE.items():
+            if stream_type_id not in selected_stream_type_ids:
+                continue
+
             stream_id = f"{channel_id}0{stream_type_id}"
-            stream_info = (await self.request(GET, f"Streaming/channels/{stream_id}")).get("StreamingChannel")
+            stream_info = None
+            for attempt in range(attempts):
+                stream_info = (await self.request(GET, f"Streaming/channels/{stream_id}")).get("StreamingChannel")
+                if stream_info:
+                    break
+                if attempt + 1 < attempts:
+                    await asyncio.sleep(STREAM_DISCOVERY_RETRY_DELAY * (attempt + 1))
+
             if not stream_info:
+                log = _LOGGER.warning if stream_type_id == PRIMARY_STREAM_TYPE_IDS[0] else _LOGGER.debug
+                log(
+                    "No %s discovered for camera channel %s after %s attempt(s)",
+                    stream_type.lower(),
+                    channel_id,
+                    attempts,
+                )
                 continue
             streams.append(
                 CameraStreamInfo(
