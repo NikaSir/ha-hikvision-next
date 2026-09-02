@@ -42,13 +42,13 @@ Events must be set to alert the surveillance center in Linkage Action for Home A
 
 Creates automation that allows to take snapshots from selected cameras when an event sensor is triggered.
 
-[<img src="https://my.home-assistant.io/badges/blueprint_import.svg">](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/maciej-or/hikvision_next/blob/main/blueprints/take_pictures_on_motion_detection.yaml)
+[<img src="https://my.home-assistant.io/badges/blueprint_import.svg">](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/NikaSir/ha-hikvision-next/blob/main/blueprints/take_pictures_on_motion_detection.yaml)
 
 #### Display Sensor State On Hikvision Video
 
 Creates an automation that allows to display text overlay on a selected video stream with the state of a selected sensor. Refreshes every 15 minutes.
 
-[<img src="https://my.home-assistant.io/badges/blueprint_import.svg">](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/maciej-or/hikvision_next/blob/main/blueprints/display_sensor_state_on_hikvision_video.yaml)
+[<img src="https://my.home-assistant.io/badges/blueprint_import.svg">](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/NikaSir/ha-hikvision-next/blob/main/blueprints/display_sensor_state_on_hikvision_video.yaml)
 
 ## Preview
 
@@ -66,13 +66,14 @@ The scope supported features depends on device model, setup and firmware version
 
 ### With HACS
 
-1. Add `NikaSir/ha-hikvision-next` as a custom HACS integration repository.
-2. Download `Hikvision NVR / IP Camera` from HACS and restart Home Assistant.
-3. Existing `hikvision_next` config entries are retained. Add a new entry only for a device that is not configured yet.
+1. If upstream `maciej-or/hikvision_next` is currently downloaded in HACS, remove only that HACS download. Do not delete the Home Assistant integration entry.
+2. Add `https://github.com/NikaSir/ha-hikvision-next` as a custom HACS repository with type `Integration`.
+3. Download `Hikvision NVR / IP Camera` from the NikaS repository and restart Home Assistant.
+4. Existing `hikvision_next` config entries are retained. Add a new entry only for a device that is not configured yet.
 
 ### Manual
 
-1. copy `custom_components/hikvision_next` folder into `conifg/custom_components`
+1. copy `custom_components/hikvision_next` folder into `config/custom_components`
 2. restart Home Assistant
 3. on `Settings / Devices & Services` page press `+ Add Integration`
 4. search for `Hikvision NVR / IP Camera` and add your Hikvision device using config dialog, repeat the last 2 steps for more devices
