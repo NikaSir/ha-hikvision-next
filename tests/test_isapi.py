@@ -77,6 +77,30 @@ async def test_required_streams_are_discovered_before_optional_streams(mock_isap
 
 
 @respx.mock
+async def test_nvr_uses_standard_stream_ids_when_metadata_is_unavailable(mock_isapi, monkeypatch):
+    """Known NVR channels must still expose camera entities when stream metadata fails."""
+    isapi = mock_isapi
+    isapi.pending_initialization = True
+    isapi.device_info.is_nvr = True
+    isapi.cameras = [
+        AnalogCamera(1, "Camera 1", "Model", "serial-1", 1, "Direct"),
+        AnalogCamera(6, "Camera 6", "Model", "serial-6", 6, "Direct"),
+    ]
+    sleep = AsyncMock()
+    monkeypatch.setattr("custom_components.hikvision_next.isapi.isapi.asyncio.sleep", sleep)
+
+    for stream_id in (101, 102, 601, 602, 103, 104, 603, 604):
+        respx.get(f"{isapi.host}/ISAPI/Streaming/channels/{stream_id}").respond(403)
+
+    await isapi.discover_camera_streams()
+
+    assert [[stream.id for stream in camera.streams] for camera in isapi.cameras] == [[101, 102], [601, 602]]
+    assert all(stream.enabled for camera in isapi.cameras for stream in camera.streams)
+    assert all(stream.width == 0 for camera in isapi.cameras for stream in camera.streams)
+    assert sleep.await_count == 8
+
+
+@respx.mock
 async def test_storage(mock_isapi):
     isapi = mock_isapi
 

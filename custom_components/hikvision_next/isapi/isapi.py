@@ -375,6 +375,7 @@ class ISAPIClient:
                 camera.id,
                 PRIMARY_STREAM_TYPE_IDS,
                 attempts=PRIMARY_STREAM_DISCOVERY_ATTEMPTS,
+                fallback_missing=self.device_info.is_nvr,
             )
 
         for camera in self.cameras:
@@ -393,6 +394,7 @@ class ISAPIClient:
         stream_type_ids: tuple[int, ...] | None = None,
         *,
         attempts: int = 1,
+        fallback_missing: bool = False,
     ) -> list[CameraStreamInfo]:
         """Get selected stream information for a camera channel."""
 
@@ -412,6 +414,29 @@ class ISAPIClient:
                     await asyncio.sleep(STREAM_DISCOVERY_RETRY_DELAY * (attempt + 1))
 
             if not stream_info:
+                if fallback_missing:
+                    _LOGGER.warning(
+                        "Using standard Hikvision stream ID %s for camera channel %s because stream metadata "
+                        "was unavailable after %s attempt(s)",
+                        stream_id,
+                        channel_id,
+                        attempts,
+                    )
+                    streams.append(
+                        CameraStreamInfo(
+                            id=int(stream_id),
+                            name=stream_type,
+                            type_id=stream_type_id,
+                            type=stream_type,
+                            enabled=True,
+                            codec="",
+                            width=0,
+                            height=0,
+                            audio=False,
+                        )
+                    )
+                    continue
+
                 log = _LOGGER.warning if stream_type_id == PRIMARY_STREAM_TYPE_IDS[0] else _LOGGER.debug
                 log(
                     "No %s discovered for camera channel %s after %s attempt(s)",
@@ -759,7 +784,7 @@ class ISAPIClient:
     ):
         """Get camera snapshot."""
         params = {}
-        if not width or width > 100:
+        if stream.width and stream.height and (not width or width > 100):
             params = {
                 "videoResolutionWidth": stream.width,
                 "videoResolutionHeight": stream.height,

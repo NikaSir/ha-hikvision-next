@@ -18,7 +18,9 @@ import homeassistant.helpers.entity_registry as er
 async def test_camera(hass: HomeAssistant, init_integration: MockConfigEntry) -> None:
     """Test camera initialization."""
 
-    assert len(hass.states.async_entity_ids(CAMERA_DOMAIN)) == 3
+    # The fourth NVR channel has no readable stream metadata in this fixture,
+    # but still receives a main-stream entity through the standard-ID fallback.
+    assert len(hass.states.async_entity_ids(CAMERA_DOMAIN)) == 4
 
     entity_id = "camera.ds_7608nxi_i0_0p_s0000000000ccrrj00000000wcvu_101"
     assert hass.states.get(entity_id)
@@ -54,6 +56,25 @@ async def test_camera_snapshot(hass: HomeAssistant, init_integration: MockConfig
     respx.get(image_url).respond(content=b"binary image data")
     image = await camera_entity.async_camera_image()
     assert image == b"binary image data"
+
+
+@respx.mock
+@pytest.mark.parametrize("init_integration", ["DS-7608NXI-I2"], indirect=True)
+async def test_camera_snapshot_without_discovered_resolution(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Fallback streams must request a snapshot without invalid zero dimensions."""
+    entity_id = "camera.ds_7608nxi_i0_0p_s0000000000ccrrj00000000wcvu_101"
+    camera_entity = get_camera_from_entity_id(hass, entity_id)
+    camera_entity.stream_info.width = 0
+    camera_entity.stream_info.height = 0
+
+    image_url = f"{TEST_HOST}/ISAPI/Streaming/channels/101/picture"
+    route = respx.get(image_url).respond(content=b"binary image data")
+    image = await camera_entity.async_camera_image()
+
+    assert image == b"binary image data"
+    assert route.calls.last.request.url.query == b""
 
 
 @respx.mock
