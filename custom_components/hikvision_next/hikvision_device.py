@@ -90,7 +90,7 @@ class HikvisionDevice(ISAPIClient):
         for coordinator in self.coordinators.values():
             await coordinator.async_config_entry_first_refresh()
 
-    def hass_device_info(self, camera_id: int = 0) -> DeviceInfo:
+    def hass_device_info(self, camera_id: int = 0) -> DeviceInfo | dict[str, Any]:
         """Return Home Assistant entity device information."""
         if camera_id == 0:
             return DeviceInfo(
@@ -104,15 +104,46 @@ class HikvisionDevice(ISAPIClient):
         else:
             camera_info = self.get_camera_by_id(camera_id)
             is_ip_camera = isinstance(camera_info, IPCamera)
+            identifiers = {(DOMAIN, camera_info.serial_no)}
 
-            return DeviceInfo(
+            # Home Assistant 2026.9 introduced a separate child-device
+            # registry. A camera may already have been migrated there while
+            # this integration still describes it using the legacy
+            # ``via_device`` relation. Registering that identifier again as a
+            # full device is rejected and prevents every entity for the camera
+            # from being added. Reuse the existing child shape when present.
+            device_registry = dr.async_get(self.hass)
+            get_child_device = getattr(device_registry, "async_get_child_device_by_identifier", None)
+            if get_child_device is not None and self.entry is not None:
+                child_device = get_child_device(next(iter(identifiers)), self.entry.entry_id)
+                if child_device is not None:
+                    return {
+                        "identifiers": identifiers,
+                        "name": camera_info.name,
+                        "parent_device_id": child_device.parent_device_id,
+                    }
+
+            camera_device_info = DeviceInfo(
                 manufacturer=self.device_info.manufacturer,
-                identifiers={(DOMAIN, camera_info.serial_no)},
+                identifiers=identifiers,
                 model=camera_info.model,
                 name=camera_info.name,
                 sw_version=camera_info.firmware if is_ip_camera else "Unknown",
-                via_device=(DOMAIN, self.device_info.serial_no) if self.device_info.is_nvr else None,
             )
+            if not self.device_info.is_nvr:
+                return camera_device_info
+
+            get_device = getattr(device_registry, "async_get_device_by_identifier", None)
+            if get_device is not None and self.entry is not None:
+                parent_device = get_device((DOMAIN, self.device_info.serial_no), self.entry.entry_id)
+                if parent_device is not None:
+                    camera_device_info["via_device_id"] = parent_device.id
+                    return camera_device_info
+
+            # Backwards compatibility with Home Assistant versions predating
+            # the explicit device-id relation.
+            camera_device_info["via_device"] = (DOMAIN, self.device_info.serial_no)
+            return camera_device_info
 
     def get_device_event_capabilities(
         self,

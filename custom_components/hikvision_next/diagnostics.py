@@ -9,7 +9,9 @@ from typing import Any
 
 from httpx import HTTPStatusError
 
+from homeassistant.components.camera import DOMAIN as CAMERA_DOMAIN
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntry
 
 from . import HikvisionConfigEntry
@@ -50,6 +52,7 @@ ANON_KEYS = {
     "subSerialNumber": anonymise_serial,
     "unique_id": anonymise_serial,
     "deviceID": anonymise_serial,
+    "entity_id": anonymise_serial,
 }
 
 anon_map = {}
@@ -71,8 +74,62 @@ async def _async_get_diagnostics(
     # Get info set
     info = {}
 
-    # Add camera info
-    # info.update({"Cameras": [to_json(camera) for camera in isapi.cameras]})
+    # Include the post-setup runtime and registry state. Raw ISAPI data alone
+    # cannot distinguish stream discovery failures from entity/device registry
+    # conflicts.
+    info["runtime"] = {
+        "cameras": [
+            {
+                "id": camera.id,
+                "name": camera.name,
+                "serial_no": camera.serial_no,
+                "streams": [
+                    {
+                        "id": stream.id,
+                        "type_id": stream.type_id,
+                        "enabled": stream.enabled,
+                        "codec": stream.codec,
+                        "width": stream.width,
+                        "height": stream.height,
+                    }
+                    for stream in camera.streams
+                ],
+            }
+            for camera in device.cameras
+        ],
+        "camera_entities": [],
+        "devices": [],
+    }
+
+    entity_registry = er.async_get(hass)
+    info["runtime"]["camera_entities"] = [
+        {
+            "entity_id": registry_entry.entity_id,
+            "unique_id": registry_entry.unique_id,
+            "disabled_by": (registry_entry.disabled_by.value if registry_entry.disabled_by is not None else None),
+            "device_id": registry_entry.device_id,
+            "active": hass.states.get(registry_entry.entity_id) is not None,
+        }
+        for registry_entry in er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+        if registry_entry.domain == CAMERA_DOMAIN and registry_entry.platform == entry.domain
+    ]
+
+    device_registry = dr.async_get(hass)
+    info["runtime"]["devices"] = [
+        {
+            "id": registry_device.id,
+            "kind": type(registry_device).__name__,
+            "name": registry_device.name,
+            "identifiers": [
+                {"domain": domain, "serial_no": identifier}
+                for domain, identifier in sorted(registry_device.identifiers)
+            ],
+            "via_device_id": getattr(registry_device, "via_device_id", None),
+            "parent_device_id": getattr(registry_device, "parent_device_id", None),
+        }
+        for registry_device in dr.async_entries_for_config_entry(device_registry, entry.entry_id)
+    ]
+    info["runtime"] = anonymise_data(info["runtime"])
 
     # ISAPI responses
     responses = {}
@@ -120,7 +177,7 @@ async def get_isapi_data(isapi, endpoint: str) -> dict:
     except (HTTPStatusError, ISAPIUnauthorizedError, ISAPIForbiddenError) as ex:
         entry["status_code"] = ex.response.status_code
     except Exception as ex:  # noqa: BLE001
-        entry["error"] = ex
+        entry["error"] = type(ex).__name__
     return entry
 
 
