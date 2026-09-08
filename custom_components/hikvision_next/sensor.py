@@ -9,7 +9,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import HikvisionConfigEntry
-from .const import CONF_ALARM_SERVER_HOST, SECONDARY_COORDINATOR
+from .const import CONF_ALARM_SERVER_HOST, EVENTS_COORDINATOR, SECONDARY_COORDINATOR, STORAGE_DATA
 from .isapi import StorageInfo
 
 NOTIFICATION_HOST_KEYS = [
@@ -28,16 +28,19 @@ async def async_setup_entry(
     """Add diagnostic sensors for hikvision alarm server settings and storage items."""
 
     device = entry.runtime_data
-    coordinator = device.coordinators.get(SECONDARY_COORDINATOR)
+    secondary_coordinator = device.coordinators.get(SECONDARY_COORDINATOR)
+    events_coordinator = device.coordinators.get(EVENTS_COORDINATOR)
 
     entities = []
-    if coordinator:
+    if secondary_coordinator and device.capabilities.support_alarm_server:
         for key in NOTIFICATION_HOST_KEYS:
-            entities.append(AlarmServerSensor(coordinator, key))
+            entities.append(AlarmServerSensor(secondary_coordinator, key))
 
+    if events_coordinator:
         for item in list(device.storage):
-            entities.append(StorageSensor(coordinator, item))
+            entities.append(StorageSensor(events_coordinator, item))
 
+    if entities:
         async_add_entities(entities, True)
 
 
@@ -61,8 +64,13 @@ class AlarmServerSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> str | None:
         """Return the state of the sensor."""
-        host = self.coordinator.data.get(CONF_ALARM_SERVER_HOST)
-        return host.get(self.key)
+        host = (self.coordinator.data or {}).get(CONF_ALARM_SERVER_HOST)
+        return host.get(self.key) if isinstance(host, dict) else None
+
+    @property
+    def available(self) -> bool:
+        """Return whether the alarm server sample is current."""
+        return super().available and self.coordinator.data_is_current(CONF_ALARM_SERVER_HOST)
 
 
 class StorageSensor(CoordinatorEntity, SensorEntity):
@@ -85,16 +93,31 @@ class StorageSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> str | None:
         """Return the state of the sensor."""
-        hdd = self.coordinator.device.get_storage_device_by_id(self.hdd.id)
+        hdd = self._current_storage()
         return str(hdd.status).upper() if hdd else None
+
+    @property
+    def available(self) -> bool:
+        """Return whether the storage sample is current and still contains this device."""
+        return (
+            super().available
+            and self.coordinator.data_is_current(STORAGE_DATA)
+            and self._current_storage() is not None
+        )
+
+    def _current_storage(self) -> StorageInfo | None:
+        """Return this storage device from the last successful sample."""
+        storage = (self.coordinator.data or {}).get(STORAGE_DATA, self.coordinator.device.storage)
+        return next((item for item in storage if item.id == self.hdd.id), None)
 
     @property
     def extra_state_attributes(self):
         """Return extra attributes."""
+        hdd = self._current_storage() or self.hdd
         attrs = {}
-        attrs["type"] = self.hdd.type
-        attrs["capacity"] = self.hdd.capacity
-        attrs["freespace"] = self.hdd.freespace
-        if self.hdd.ip:
-            attrs["ip"] = self.hdd.ip
+        attrs["type"] = hdd.type
+        attrs["capacity"] = hdd.capacity
+        attrs["freespace"] = hdd.freespace
+        if hdd.ip:
+            attrs["ip"] = hdd.ip
         return attrs
