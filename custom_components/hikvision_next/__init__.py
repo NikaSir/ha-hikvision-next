@@ -8,9 +8,13 @@ import logging
 import traceback
 from homeassistant.util import slugify
 from homeassistant.components.binary_sensor import (
+    DOMAIN as BINARY_SENSOR_DOMAIN,
     ENTITY_ID_FORMAT as BINARY_SENSOR_ENTITY_ID_FORMAT,
 )
-from homeassistant.components.switch import ENTITY_ID_FORMAT as SWITCH_ENTITY_ID_FORMAT
+from homeassistant.components.switch import (
+    DOMAIN as SWITCH_DOMAIN,
+    ENTITY_ID_FORMAT as SWITCH_ENTITY_ID_FORMAT,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -157,21 +161,32 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 def refresh_disabled_entities_in_registry(hass: HomeAssistant, device: HikvisionDevice):
     """Set disable state according to Notify Surveillance Center flag."""
 
-    def update_entity(event, ENTITY_ID_FORMAT):
-        entity_id = ENTITY_ID_FORMAT.format(event.unique_id)
+    def update_entity(event, entity_domain, entity_id_format):
+        unique_id = entity_id_format.format(event.unique_id)
+        entity_id = entity_registry.async_get_entity_id(entity_domain, DOMAIN, unique_id)
+        if not entity_id:
+            return
+
         entity = entity_registry.async_get(entity_id)
         if not entity:
             return
-        if entity.disabled != event.disabled:
-            disabled_by = er.RegistryEntryDisabler.INTEGRATION if event.disabled else None
-            entity_registry.async_update_entity(entity_id, disabled_by=disabled_by)
+
+        if event.disabled and entity.disabled_by is None:
+            entity_registry.async_update_entity(
+                entity_id, disabled_by=er.RegistryEntryDisabler.INTEGRATION
+            )
+        elif (
+            not event.disabled
+            and entity.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+        ):
+            entity_registry.async_update_entity(entity_id, disabled_by=None)
 
     entity_registry = er.async_get(hass)
     for camera in device.cameras:
         for event in camera.events_info:
-            update_entity(event, SWITCH_ENTITY_ID_FORMAT)
-            update_entity(event, BINARY_SENSOR_ENTITY_ID_FORMAT)
+            update_entity(event, SWITCH_DOMAIN, SWITCH_ENTITY_ID_FORMAT)
+            update_entity(event, BINARY_SENSOR_DOMAIN, BINARY_SENSOR_ENTITY_ID_FORMAT)
 
     for event in device.events_info:
-        update_entity(event, SWITCH_ENTITY_ID_FORMAT)
-        update_entity(event, BINARY_SENSOR_ENTITY_ID_FORMAT)
+        update_entity(event, SWITCH_DOMAIN, SWITCH_ENTITY_ID_FORMAT)
+        update_entity(event, BINARY_SENSOR_DOMAIN, BINARY_SENSOR_ENTITY_ID_FORMAT)
