@@ -98,8 +98,32 @@ async def _async_get_diagnostics(
             for camera in device.cameras
         ],
         "camera_entities": [],
+        "coordinators": [],
         "devices": [],
     }
+
+    info["runtime"]["coordinators"] = [
+        {
+            "name": name,
+            "last_update_success": coordinator.last_update_success,
+            "last_exception": (
+                type(coordinator.last_exception).__name__ if coordinator.last_exception is not None else None
+            ),
+            "samples": [
+                {
+                    "entity_id": key,
+                    "current": coordinator.data_is_current(key),
+                    "last_successful_update": (
+                        coordinator.last_successful_update[key].isoformat()
+                        if key in coordinator.last_successful_update
+                        else None
+                    ),
+                }
+                for key in sorted(coordinator.last_successful_update.keys() | coordinator.failed_keys)
+            ],
+        }
+        for name, coordinator in device.coordinators.items()
+    ]
 
     entity_registry = er.async_get(hass)
     info["runtime"]["camera_entities"] = [

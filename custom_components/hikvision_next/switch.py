@@ -74,6 +74,11 @@ class EventSwitch(CoordinatorEntity, SwitchEntity):
         """Return True if the binary sensor is on."""
         return self.coordinator.data.get(self.unique_id)
 
+    @property
+    def available(self) -> bool:
+        """Return whether this event sample is current."""
+        return super().available and self.coordinator.data_is_current(self.unique_id)
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on."""
         try:
@@ -118,6 +123,11 @@ class NVROutputSwitch(CoordinatorEntity, SwitchEntity):
         """Turn on."""
         return self.coordinator.data.get(self.unique_id)
 
+    @property
+    def available(self) -> bool:
+        """Return whether this output sample is current."""
+        return super().available and self.coordinator.data_is_current(self.unique_id)
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on."""
         try:
@@ -154,6 +164,11 @@ class HolidaySwitch(CoordinatorEntity, SwitchEntity):
     def is_on(self) -> bool | None:
         """Return True if the binary sensor is on."""
         return self.coordinator.data.get(HOLIDAY_MODE)
+
+    @property
+    def available(self) -> bool:
+        """Return whether the holiday-mode sample is current."""
+        return super().available and self.coordinator.data_is_current(HOLIDAY_MODE)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on."""

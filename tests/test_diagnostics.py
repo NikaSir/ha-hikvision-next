@@ -22,6 +22,9 @@ async def test_diagnostics_include_runtime_registry_state(
 
     assert len(diagnostics["runtime"]["cameras"]) == 4
     assert diagnostics["runtime"]["camera_entities"]
+    assert diagnostics["runtime"]["coordinators"]
+    assert all("last_update_success" in coordinator for coordinator in diagnostics["runtime"]["coordinators"])
+    assert all("samples" in coordinator for coordinator in diagnostics["runtime"]["coordinators"])
     assert diagnostics["runtime"]["devices"]
     assert "ISAPI" in diagnostics
 

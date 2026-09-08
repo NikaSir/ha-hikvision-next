@@ -20,6 +20,12 @@ The Home Assistant integration for Hikvision NVRs and IP cameras. Receives and s
 - Remote reboot device
 - Basic and digest authentication support
 
+### Polling availability
+
+If every supported ISAPI request in a polling group fails, its entities become unavailable while the last successful
+sample is retained for recovery. With a partial response, only values whose requests failed are marked unavailable.
+Diagnostics include the result and last-success time for each polled value.
+
 ### Supported events
 
 - Motion

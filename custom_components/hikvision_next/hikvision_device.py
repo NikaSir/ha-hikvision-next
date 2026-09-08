@@ -79,7 +79,6 @@ class HikvisionDevice(ISAPIClient):
         if (
             self.capabilities.support_holiday_mode
             or self.capabilities.support_alarm_server
-            or self.capabilities.storage
         ):
             self.coordinators[SECONDARY_COORDINATOR] = SecondaryCoordinator(self.hass, self)
 
