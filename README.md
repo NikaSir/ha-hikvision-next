@@ -94,6 +94,8 @@ The scope supported features depends on device model, setup and firmware version
 - Storage Schedule Settings - set continuous recording in Holiday mode for desired cameras
 - Notifications Host - IP address of Home Assistant instance for event notifications. Can be set manually or by this integration if checked `Set Notifications Host` checkbox in the configuration dialog. It will be reverted to `http://0.0.0.0:80/` on integration unload.
 
+Incoming event notifications are accepted only when their source IP matches the configured NVR or camera host. If this endpoint is placed behind a reverse proxy, configure Home Assistant trusted proxies so `request.remote` remains the original device address. Do not expose the notification endpoint through a proxy that hides the sender address.
+
 ## Reporting issues
 
 There are a lot of Hikvision devices with different firmwares in the world. In most cases logs are crucial to solve your problem, so please attach them to the report.

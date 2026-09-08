@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-from http import HTTPStatus
 import ipaddress
 import logging
 import socket
+from http import HTTPStatus
 from urllib.parse import urlparse
 
 from aiohttp import web
-from requests_toolbelt.multipart import MultipartDecoder
-
 from homeassistant.components.http import HomeAssistantView
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONTENT_TYPE_TEXT_PLAIN, STATE_ON, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_registry import async_get
 from homeassistant.util import slugify
+from requests_toolbelt.multipart import MultipartDecoder
 
 from .const import ALARM_SERVER_PATH, DOMAIN, HIKVISION_EVENT
 from .hikvision_device import HikvisionDevice
@@ -32,6 +32,10 @@ CONTENT_TYPE_XML = (
 )
 CONTENT_TYPE_TEXT_HTML = "text/html"
 CONTENT_TYPE_IMAGE = "image/jpeg"
+
+
+class UntrustedEventSourceError(ValueError):
+    """Raised when an event notification did not come from a configured device."""
 
 
 class EventNotificationsView(HomeAssistantView):
@@ -54,64 +58,111 @@ class EventNotificationsView(HomeAssistantView):
             xml = await self.parse_event_request(request)
             _LOGGER.debug("alert info: %s", xml)
             alert = ISAPIClient.parse_event_notification(xml)
-            self.device = self.get_isapi_device(request.remote, alert)
+            self.device = await self.get_isapi_device(request.remote, alert)
             self.update_alert_channel(alert)
             self.trigger_sensor(alert)
+        except UntrustedEventSourceError as ex:
+            _LOGGER.warning("Rejected incoming event notification: %s", ex)
+            return web.Response(status=HTTPStatus.FORBIDDEN, content_type=CONTENT_TYPE_TEXT_PLAIN)
         except Exception as ex:  # pylint: disable=broad-except
             _LOGGER.warning("Cannot process incoming event %s", ex)
 
         response = web.Response(status=HTTPStatus.OK, content_type=CONTENT_TYPE_TEXT_PLAIN)
         return response
 
-    def get_isapi_device(self, device_ip, alert: AlertInfo) -> HikvisionDevice:
+    async def get_isapi_device(self, device_ip: str | None, alert: AlertInfo) -> HikvisionDevice:
         """Get integration instance for device sending alert."""
-        integration_entries = self.hass.config_entries.async_entries(DOMAIN)
-        instance_identifiers = []
-        entry = None
-        if len(integration_entries) == 1:
-            entry = integration_entries[0]
-        else:
-            # Search device by mac_address
-            for item in integration_entries:
-                if item.disabled_by:
-                    continue
+        source_ip = self._normalize_ip(device_ip)
+        integration_entries = [
+            entry
+            for entry in self.hass.config_entries.async_entries(DOMAIN)
+            if not entry.disabled_by and entry.state is ConfigEntryState.LOADED
+        ]
 
-                item_mac_address = item.runtime_data.device_info.mac_address
-                instance_identifiers.append(item_mac_address)
+        resolved_hosts: dict[str, set[str]] = {}
+        source_matches = []
+        configured_hosts = []
+        for entry in integration_entries:
+            hostname = urlparse(entry.runtime_data.host).hostname
+            if not hostname:
+                continue
 
-                if item_mac_address == alert.mac:
-                    entry = item
-                    break
+            configured_hosts.append(hostname)
+            if hostname not in resolved_hosts:
+                resolved_hosts[hostname] = await self._resolve_host_ips(hostname)
+            if source_ip in resolved_hosts[hostname]:
+                source_matches.append(entry)
 
-            # Search device by ip_address
-            if not entry:
-                for item in integration_entries:
-                    if item.disabled_by:
-                        continue
+        if not source_matches:
+            raise UntrustedEventSourceError(
+                f"source {source_ip} does not match a loaded Hikvision device ({configured_hosts})"
+            )
 
-                    url = item.runtime_data.host
-                    instance_identifiers.append(url)
+        if len(source_matches) == 1:
+            return source_matches[0].runtime_data
 
-                    if self.get_ip(urlparse(url).hostname) == device_ip:
-                        entry = item
-                        break
+        # A MAC supplied inside the XML is not authentication. It is only safe
+        # to use it for routing after the network source matched configured hosts.
+        alert_mac = self._normalize_mac(alert.mac)
+        mac_matches = [
+            entry
+            for entry in source_matches
+            if alert_mac and self._normalize_mac(entry.runtime_data.device_info.mac_address) == alert_mac
+        ]
+        if len(mac_matches) == 1:
+            return mac_matches[0].runtime_data
 
-        if not entry:
-            raise ValueError(f"Cannot find ISAPI instance for device {device_ip} in {instance_identifiers}")
+        raise UntrustedEventSourceError(
+            f"source {source_ip} matches multiple Hikvision devices and cannot be identified"
+        )
 
-        return entry.runtime_data
+    @staticmethod
+    def _normalize_ip(ip_string: str | None) -> str:
+        """Return a canonical source address, including IPv4-mapped IPv6."""
 
-    def get_ip(self, ip_string: str) -> str:
-        """Return an IP if either hostname or IP is provided."""
+        if not ip_string:
+            raise UntrustedEventSourceError("event notification has no source address")
 
         try:
-            ipaddress.ip_address(ip_string)
-            return ip_string
-        except ValueError:
-            resolved_hostname = socket.gethostbyname(ip_string)
-            _LOGGER.debug("Resolve host %s resolves to IP %s", ip_string, resolved_hostname)
+            address = ipaddress.ip_address(ip_string.split("%", 1)[0])
+        except ValueError as ex:
+            raise UntrustedEventSourceError(f"invalid event source address {ip_string!r}") from ex
 
-            return resolved_hostname
+        if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+            address = address.ipv4_mapped
+        return str(address)
+
+    async def _resolve_host_ips(self, hostname: str) -> set[str]:
+        """Resolve a configured device host without blocking the event loop."""
+
+        try:
+            return {self._normalize_ip(hostname)}
+        except UntrustedEventSourceError:
+            pass
+
+        try:
+            addresses = await self.hass.async_add_executor_job(
+                socket.getaddrinfo,
+                hostname,
+                None,
+                socket.AF_UNSPEC,
+                socket.SOCK_STREAM,
+            )
+        except OSError as ex:
+            _LOGGER.warning("Cannot resolve configured Hikvision host %s: %s", hostname, ex)
+            return set()
+
+        resolved = {self._normalize_ip(address[4][0]) for address in addresses}
+        _LOGGER.debug("Resolved host %s to %s", hostname, sorted(resolved))
+        return resolved
+
+    @staticmethod
+    def _normalize_mac(mac_address: str | None) -> str:
+        """Normalize a MAC address for source-matched routing."""
+
+        if not mac_address:
+            return ""
+        return "".join(character for character in mac_address.lower() if character.isalnum())
 
     async def parse_event_request(self, request: web.Request) -> str:
         """Extract XML content from multipart request or from simple request."""
