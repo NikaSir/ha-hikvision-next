@@ -41,6 +41,7 @@ Diagnostics include the result and last-success time for each polled value.
 
 **NOTE**
 Events must be set to alert the surveillance center in Linkage Action for Home Assistant to be notified. Otherwise related binary sensors and switches will appear as disabled entities.
+The integration preserves entities disabled by the user or device and only re-enables entities that it disabled itself.
 
 ### Blueprints
 

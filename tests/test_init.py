@@ -1,14 +1,58 @@
 """Tests for the hikvision_next integration."""
 
+from types import SimpleNamespace
 import pytest
 from unittest.mock import patch
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from custom_components.hikvision_next import refresh_disabled_entities_in_registry
 from custom_components.hikvision_next.const import DOMAIN
 from custom_components.hikvision_next.hikvision_device import HikvisionDevice
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from homeassistant.config_entries import ConfigEntryState
 
 from tests.conftest import TEST_CONFIG, TEST_CONFIG_WITH_ALARM_SERVER, TEST_CONFIG_OUTSIDE_NETWORK
+
+
+@pytest.mark.parametrize("entity_domain", ["switch", "binary_sensor"])
+@pytest.mark.parametrize("rename_entity", [False, True])
+@pytest.mark.parametrize(
+    ("disabled_by", "event_disabled", "expected_disabled_by"),
+    [
+        (er.RegistryEntryDisabler.USER, False, er.RegistryEntryDisabler.USER),
+        (er.RegistryEntryDisabler.DEVICE, False, er.RegistryEntryDisabler.DEVICE),
+        (er.RegistryEntryDisabler.INTEGRATION, False, None),
+        (None, True, er.RegistryEntryDisabler.INTEGRATION),
+        (er.RegistryEntryDisabler.USER, True, er.RegistryEntryDisabler.USER),
+    ],
+)
+async def test_refresh_disabled_entities_preserves_registry_owner(
+    hass: HomeAssistant,
+    entity_domain: str,
+    rename_entity: bool,
+    disabled_by: er.RegistryEntryDisabler | None,
+    event_disabled: bool,
+    expected_disabled_by: er.RegistryEntryDisabler | None,
+) -> None:
+    """Only update disable state owned by the integration."""
+    event = SimpleNamespace(unique_id="camera_motion", disabled=event_disabled)
+    device = SimpleNamespace(cameras=[], events_info=[event])
+    entity_registry = er.async_get(hass)
+    entity = entity_registry.async_get_or_create(
+        entity_domain,
+        DOMAIN,
+        f"{entity_domain}.{event.unique_id}",
+        suggested_object_id="original_event",
+        disabled_by=disabled_by,
+    )
+    entity_id = entity.entity_id
+    if rename_entity:
+        entity_id = f"{entity_domain}.renamed_event"
+        entity_registry.async_update_entity(entity.entity_id, new_entity_id=entity_id)
+
+    refresh_disabled_entities_in_registry(hass, device)
+
+    assert entity_registry.async_get(entity_id).disabled_by is expected_disabled_by
 
 
 @pytest.mark.parametrize("init_integration",
