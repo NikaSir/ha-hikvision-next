@@ -1,10 +1,17 @@
 name: CI
 
 on:
+  push:
   pull_request:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  repository-checks:
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 4
@@ -26,3 +33,36 @@ jobs:
       - name: Run pytest
         run: |
           pytest
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: home-assistant/actions/hassfest@master
+
+  validate:
+    needs: [repository-checks, hassfest]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require pytest and Hassfest to succeed
+        shell: bash
+        env:
+          NIKAS_JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYGATE'
+          import json
+          import os
+          import sys
+
+          required = {"repository-checks", "hassfest"}
+          results = json.loads(os.environ["NIKAS_JOB_RESULTS"])
+          if not isinstance(results, dict) or set(results) != required:
+              sys.exit("Missing or unexpected required job results")
+          failed = [name for name in sorted(required)
+                    if not isinstance(results[name], dict)
+                    or results[name].get("result") != "success"]
+          if failed:
+              sys.exit(f"Required jobs did not succeed: {failed}")
+          print("Pytest and Hassfest succeeded; device acceptance remains separate.")
+          PYGATE
