@@ -3,7 +3,7 @@
 ## Current repository state
 
 - `main` is the canonical source branch, and accepted changes reach it through reviewed pull requests after required checks pass.
-- The integration version is [`1.1.7`](../custom_components/hikvision_next/manifest.json).
+- The integration version is [`1.1.8`](../custom_components/hikvision_next/manifest.json).
 - At the 2026-09-14 audit baseline, this repository had no Git tags or GitHub Releases.
 - The README documents installation as a custom HACS repository. End-to-end acceptance that HACS exposes and installs the current `main` state was not performed by that audit, so a merged commit must not be described as delivered until that check succeeds on the target Home Assistant installation.
 
