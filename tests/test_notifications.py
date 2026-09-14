@@ -1,6 +1,7 @@
 """Test event notifications."""
 
 from http import HTTPStatus
+import socket
 from unittest.mock import MagicMock
 
 import pytest
@@ -68,8 +69,20 @@ async def test_rejects_notification_from_untrusted_source_single_entry(
 async def test_rejects_spoofed_mac_from_untrusted_source(
     hass: HomeAssistant,
     init_multi_device_integration: list[MockConfigEntry],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Do not treat the MAC address inside untrusted XML as authentication."""
+
+    def resolve_configured_host(hostname: str, *_args):
+        assert hostname == "address.domain"
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("198.51.100.20", 0))]
+
+    # Exercise real source matching with deterministic DNS, including on HA
+    # test environments that prohibit external name resolution.
+    monkeypatch.setattr(
+        "custom_components.hikvision_next.notifications.socket.getaddrinfo",
+        resolve_configured_host,
+    )
 
     entity_id = "binary_sensor.ds_2cd2t46g2_isu_sl00000000aawrg00000000_1_io"
     assert (sensor := hass.states.get(entity_id))

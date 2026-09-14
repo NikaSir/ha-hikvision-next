@@ -5,11 +5,17 @@ requests-toolbelt==1.0.0
 # tests
 pytest
 pytest-asyncio
-pytest-cov>=4.1.0
-pytest-homeassistant-custom-component>=0.13.179
+# Keep the Python 3.12 baseline resolvable; current HA tests require Python 3.14.
+pytest-cov>=4.1.0; python_version < "3.14"
+pytest-cov>=7.1.0; python_version >= "3.14"
+pytest-homeassistant-custom-component>=0.13.179; python_version < "3.14"
+pytest-homeassistant-custom-component>=0.13.364; python_version >= "3.14"
 
 #
 async-timeout
 httpx
 respx
 aiohttp_cors
+
+# Camera import dependency for the current Home Assistant test environment.
+PyTurboJPEG==1.8.3; python_version >= "3.14"
