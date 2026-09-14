@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from homeassistant.components.sensor import ENTITY_ID_FORMAT, SensorEntity
 from homeassistant.core import HomeAssistant
+from homeassistant.util import slugify
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -56,7 +57,7 @@ class AlarmServerSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         device = coordinator.device
         self._attr_unique_id = f"{device.device_info.serial_no}_{CONF_ALARM_SERVER_HOST}_{key}"
-        self.entity_id = ENTITY_ID_FORMAT.format(self.unique_id)
+        self.entity_id = ENTITY_ID_FORMAT.format(slugify(self.unique_id))
         self._attr_device_info = device.hass_device_info()
         self._attr_translation_key = f"notifications_host_{key}"
         self.key = key
@@ -85,7 +86,7 @@ class StorageSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         device = coordinator.device
         self._attr_unique_id = f"{device.device_info.serial_no}_{hdd.id}_{hdd.name}"
-        self.entity_id = ENTITY_ID_FORMAT.format(self.unique_id)
+        self.entity_id = ENTITY_ID_FORMAT.format(slugify(self.unique_id))
         self._attr_device_info = device.hass_device_info()
         self._attr_name = f"{hdd.type} {hdd.name}"
         self.hdd = hdd
