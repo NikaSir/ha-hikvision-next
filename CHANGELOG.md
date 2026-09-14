@@ -1,8 +1,15 @@
 # Changelog
 
-Current integration version: [`1.1.8`](custom_components/hikvision_next/manifest.json).
+Current integration version: [`1.1.9`](custom_components/hikvision_next/manifest.json).
 
 Earlier project history remains available in Git history and the upstream project; it is not reconstructed here.
+
+## 1.1.9 — 2026-09-14
+
+- Normalize alarm-server and storage sensor entity IDs before registration, removing reliance on Home Assistant's compatibility repair scheduled for removal in 2027.2.
+- Preserve original unique IDs and existing registry entries, including user-assigned names and disabled state.
+- Add regression coverage for valid IDs before registration and legacy registry entries across setup/unload/setup.
+- Real-device and HACS installation acceptance remain pending.
 
 ## 1.1.8 — 2026-09-14
 
