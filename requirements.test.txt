@@ -18,4 +18,4 @@ respx
 aiohttp_cors
 
 # Camera import dependency for the current Home Assistant test environment.
-PyTurboJPEG==1.8.3; python_version >= "3.14"
+PyTurboJPEG==2.5.0; python_version >= "3.14"
