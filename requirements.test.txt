@@ -9,7 +9,7 @@ pytest-asyncio
 pytest-cov>=4.1.0; python_version < "3.14"
 pytest-cov>=7.1.0; python_version >= "3.14"
 pytest-homeassistant-custom-component>=0.13.179; python_version < "3.14"
-pytest-homeassistant-custom-component>=0.13.364; python_version >= "3.14"
+pytest-homeassistant-custom-component>=0.13.368; python_version >= "3.14"
 
 #
 async-timeout
