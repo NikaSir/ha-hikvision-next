@@ -1,3 +1,8 @@
+## Repository audit maintenance — 2026-10-17
+
+- Allow Home Assistant to update xmltodict from the tested 1.0.4 minimum; declare config-entry-only setup explicitly to satisfy current Hassfest.
+- Product/UI versions and equipment commands are unchanged; target-device acceptance remains separate.
+
 # Changelog
 
 Current integration version: [`1.1.9`](custom_components/hikvision_next/manifest.json).
