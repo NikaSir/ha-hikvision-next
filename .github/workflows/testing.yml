@@ -30,7 +30,7 @@ jobs:
         if: matrix.python-version == '3.14'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libturbojpeg
+          sudo apt-get install -y libturbojpeg0
 
       - name: Install dependencies
         run: |
